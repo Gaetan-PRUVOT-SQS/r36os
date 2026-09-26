@@ -1,0 +1,279 @@
+#!/usr/bin/env python3
+# Croix et stick = souris. A clic, B clic droit, X menu.
+# Y jeux, Start terminal, L/R lumière, Select muet.
+import os
+import select
+import struct
+import subprocess
+import time
+
+HAUT, BAS, GAUCHE, DROITE = 544, 545, 546, 547
+BOUTON_A, BOUTON_B, BOUTON_X = 305, 304, 307
+BOUTON_Y, BOUTON_START = 308, 315
+BOUTON_L, BOUTON_R, BOUTON_SELECT = 310, 311, 314
+DIRS = {
+    HAUT: (0, -1),
+    BAS: (0, 1),
+    GAUCHE: (-1, 0),
+    DROITE: (1, 0),
+}
+EV_KEY, EV_REL, EV_ABS = 1, 2, 3
+BTN_GAUCHE, BTN_DROIT = 272, 273
+VITESSE_STICK = 8
+
+
+def iow(lettre, numero, taille):
+    return (1 << 30) | (taille << 16) | (ord(lettre) << 8) | numero
+
+
+def io(lettre, numero):
+    return (ord(lettre) << 8) | numero
+
+
+def eviocgabs(axe):
+    return (2 << 30) | (24 << 16) | (ord("E") << 8) | (0x40 + axe)
+
+
+UI_SET_EVBIT = iow("U", 100, 4)
+UI_SET_KEYBIT = iow("U", 101, 4)
+UI_SET_RELBIT = iow("U", 102, 4)
+UI_DEV_CREATE = io("U", 1)
+EVIOCGRAB = iow("E", 0x90, 4)
+
+
+def deplacement(axes, bornes):
+    dx = dy = 0
+    for axe in (0, 1):
+        if axe not in bornes:
+            continue
+        minimum, maximum, plat = bornes[axe]
+        demi = (maximum - minimum) / 2.0
+        if demi <= 0:
+            continue
+        milieu = (minimum + maximum) / 2.0
+        mort = plat if plat else demi * 0.20
+        ecart = axes.get(axe, milieu) - milieu
+        if abs(ecart) <= mort:
+            continue
+        part = ecart / demi
+        if part > 1:
+            part = 1
+        if part < -1:
+            part = -1
+        px = int(round(part * VITESSE_STICK))
+        if axe == 0:
+            dx = px
+        else:
+            dy = px
+    return dx, dy
+
+
+def trouver():
+    try:
+        blocs = open("/proc/bus/input/devices", "r", errors="replace").read().split("\n\n")
+    except OSError:
+        return None
+    for bloc in blocs:
+        if "joypad" not in bloc.lower():
+            continue
+        for ligne in bloc.splitlines():
+            if not ligne.startswith("H: Handlers="):
+                continue
+            for mot in ligne.split():
+                if mot.startswith("event"):
+                    return "/dev/input/" + mot
+    return None
+
+
+def fcntl_ioctl(fd, requete, valeur):
+    import fcntl
+    fcntl.ioctl(fd, requete, valeur)
+
+
+def souris():
+    chemin = "/dev/uinput"
+    if not os.path.exists(chemin):
+        chemin = "/dev/input/uinput"
+    fd = os.open(chemin, os.O_WRONLY | os.O_NONBLOCK)
+    for bit in (EV_KEY, EV_REL):
+        fcntl_ioctl(fd, UI_SET_EVBIT, bit)
+    fcntl_ioctl(fd, UI_SET_KEYBIT, BTN_GAUCHE)
+    fcntl_ioctl(fd, UI_SET_KEYBIT, BTN_DROIT)
+    fcntl_ioctl(fd, UI_SET_RELBIT, 0)
+    fcntl_ioctl(fd, UI_SET_RELBIT, 1)
+    fiche = struct.pack("80sHHHHi", b"r36os manette", 6, 1, 1, 1, 0)
+    fiche += struct.pack("256i", *([0] * 256))
+    os.write(fd, fiche)
+    fcntl_ioctl(fd, UI_DEV_CREATE, 0)
+    return fd
+
+
+def envoyer(fd, genre, code, valeur):
+    os.write(fd, struct.pack("QQHHi", 0, 0, genre, code, valeur))
+
+
+def syn(fd):
+    envoyer(fd, 0, 0, 0)
+
+
+def bouger(fd, dx, dy):
+    if dx:
+        envoyer(fd, EV_REL, 0, dx)
+    if dy:
+        envoyer(fd, EV_REL, 1, dy)
+    syn(fd)
+
+
+def clic(fd, bouton, enfonce):
+    envoyer(fd, EV_KEY, bouton, 1 if enfonce else 0)
+    syn(fd)
+
+
+def lancer(cmd):
+    try:
+        subprocess.Popen(
+            cmd,
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        pass
+
+
+def ouvrir_menu():
+    import ctypes
+    x11 = ctypes.CDLL("libX11.so.6")
+    xtst = ctypes.CDLL("libXtst.so.6")
+    x11.XOpenDisplay.restype = ctypes.c_void_p
+    x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+    ecran = x11.XOpenDisplay(None)
+    if not ecran:
+        return
+    x11.XDefaultScreen.argtypes = [ctypes.c_void_p]
+    x11.XDefaultScreen.restype = ctypes.c_int
+    x11.XDisplayWidth.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    x11.XDisplayWidth.restype = ctypes.c_int
+    x11.XDisplayHeight.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    x11.XDisplayHeight.restype = ctypes.c_int
+    x11.XFlush.argtypes = [ctypes.c_void_p]
+    x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
+    xtst.XTestFakeMotionEvent.argtypes = [
+        ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_ulong
+    ]
+    xtst.XTestFakeButtonEvent.argtypes = [
+        ctypes.c_void_p, ctypes.c_uint, ctypes.c_int, ctypes.c_ulong
+    ]
+    n = x11.XDefaultScreen(ecran)
+    hauteur = x11.XDisplayHeight(ecran, n)
+    xtst.XTestFakeMotionEvent(ecran, n, 24, max(0, hauteur - 16), 0)
+    xtst.XTestFakeButtonEvent(ecran, 1, 1, 0)
+    xtst.XTestFakeButtonEvent(ecran, 1, 0, 0)
+    x11.XFlush(ecran)
+    x11.XCloseDisplay(ecran)
+
+
+def lire_bornes(fd):
+    import fcntl
+    bornes = {}
+    axes = {}
+    for axe in (0, 1):
+        buf = bytearray(24)
+        try:
+            fcntl.ioctl(fd, eviocgabs(axe), buf)
+        except OSError:
+            continue
+        _valeur, minimum, maximum, _flou, plat, _res = struct.unpack("iiiiii", buf)
+        bornes[axe] = (minimum, maximum, plat)
+        axes[axe] = (minimum + maximum) // 2
+    return axes, bornes
+
+
+def action(code):
+    if code == BOUTON_Y:
+        lancer(["pcmanfm-qt", "/media/jeux"])
+    elif code == BOUTON_START:
+        lancer(["qterminal"])
+    elif code == BOUTON_L:
+        lancer(["/usr/bin/r36os-luminosite", "-"])
+    elif code == BOUTON_R:
+        lancer(["/usr/bin/r36os-luminosite", "+"])
+    elif code == BOUTON_SELECT:
+        lancer(["/usr/bin/r36os-son", "muet"])
+    elif code == BOUTON_X:
+        ouvrir_menu()
+
+
+def boucle(manette, pointeur):
+    import fcntl
+    fcntl.ioctl(manette, EVIOCGRAB, 1)
+    enfonces = set()
+    debut = None
+    axes, bornes = lire_bornes(manette)
+    while True:
+        pret, _, _ = select.select([manette], [], [], 0.02)
+        if pret:
+            try:
+                data = os.read(manette, 24 * 16)
+            except OSError:
+                return
+            for i in range(0, len(data) - 23, 24):
+                _sec, _usec, genre, code, valeur = struct.unpack("QQHHi", data[i:i + 24])
+                if genre == EV_ABS and code in (0, 1):
+                    axes[code] = valeur
+                    continue
+                if genre != EV_KEY:
+                    continue
+                if code in DIRS:
+                    if valeur == 1:
+                        enfonces.add(code)
+                        if debut is None:
+                            debut = time.monotonic()
+                    elif valeur == 0:
+                        enfonces.discard(code)
+                        if not enfonces:
+                            debut = None
+                elif code == BOUTON_A and valeur in (0, 1):
+                    clic(pointeur, BTN_GAUCHE, valeur == 1)
+                elif code == BOUTON_B and valeur in (0, 1):
+                    clic(pointeur, BTN_DROIT, valeur == 1)
+                elif valeur == 1:
+                    action(code)
+                elif valeur == 2 and code in (BOUTON_L, BOUTON_R):
+                    action(code)
+        if enfonces and debut is not None:
+            vitesse = 18 if time.monotonic() - debut > 0.4 else 8
+            dx = dy = 0
+            for code in enfonces:
+                x, y = DIRS[code]
+                dx += x * vitesse
+                dy += y * vitesse
+            bouger(pointeur, dx, dy)
+        elif not enfonces:
+            dx, dy = deplacement(axes, bornes)
+            if dx or dy:
+                bouger(pointeur, dx, dy)
+
+
+def main():
+    pointeur = souris()
+    while True:
+        chemin = trouver()
+        if not chemin:
+            time.sleep(1)
+            continue
+        try:
+            manette = os.open(chemin, os.O_RDONLY)
+        except OSError:
+            time.sleep(1)
+            continue
+        try:
+            boucle(manette, pointeur)
+        except OSError:
+            pass
+        os.close(manette)
+        time.sleep(1)
+
+
+if __name__ == "__main__":
+    main()

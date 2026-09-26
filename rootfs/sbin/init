@@ -1,0 +1,71 @@
+#!/bin/sh
+
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export LD_LIBRARY_PATH=/lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu
+
+echo r36os > /proc/sys/kernel/hostname 2>/dev/null || true
+
+if [ -x /sbin/resize2fs ]; then
+  disque=$(findmnt -n -o SOURCE / 2>/dev/null || true)
+  case "$disque" in
+    /dev/*)
+      echo "r36os: agrandit la racine"
+      /sbin/resize2fs "$disque" || true
+      ;;
+  esac
+fi
+
+mkdir -p /run /tmp /dev/pts
+mount -t tmpfs -o size=64m,mode=1777 tmpfs /tmp 2>/dev/null || chmod 1777 /tmp
+mount -t tmpfs tmpfs /run 2>/dev/null || true
+mkdir -p /run/dbus /run/user/0
+chmod 700 /run/user/0
+mount -t devpts devpts /dev/pts 2>/dev/null || true
+
+if [ -x /usr/lib/systemd/systemd-udevd ]; then
+  /usr/lib/systemd/systemd-udevd --daemon || true
+fi
+if [ -x /bin/udevadm ]; then
+  /bin/udevadm trigger --type=devices --action=add || true
+  /bin/udevadm settle --timeout=5 || true
+fi
+
+if [ ! -e /dev/fb0 ]; then
+  echo "r36os: pas d'ecran"
+  exec /bin/sh
+fi
+
+if [ ! -s /etc/machine-id ] && [ -x /usr/bin/dbus-uuidgen ]; then
+  dbus-uuidgen --ensure=/etc/machine-id || true
+fi
+
+if [ -x /usr/bin/dbus-daemon ]; then
+  dbus-daemon --system --fork || true
+fi
+
+if [ -c /dev/tty1 ]; then
+  exec </dev/tty1 >/dev/tty1 2>&1
+fi
+
+if [ -x /sbin/perf ]; then
+  /sbin/perf
+fi
+
+if [ -x /usr/bin/r36os-disques ]; then
+  /usr/bin/r36os-disques || true
+fi
+if [ -x /usr/bin/r36os-luminosite ]; then
+  /usr/bin/r36os-luminosite poser || true
+fi
+
+export DISPLAY=:0
+export XDG_RUNTIME_DIR=/run/user/0
+export HOME=/root
+export LANG="${LANG:-fr_FR.UTF-8}"
+
+if [ -x /usr/bin/startlxqt ] && [ -x /usr/bin/startx ]; then
+  /usr/bin/startx /usr/bin/startlxqt -- :0 vt1 -keeptty || true
+fi
+
+echo "r36os: bureau absent"
+exec /bin/sh

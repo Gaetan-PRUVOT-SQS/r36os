@@ -1,0 +1,244 @@
+#!/usr/bin/env python3
+# Clavier dessiné par X. override_redirect : le clic ne quitte pas le terminal.
+import ctypes
+import fcntl
+import os
+import sys
+
+RANGS = (
+    list("azertyuiop"),
+    list("qsdfghjklm"),
+    list("wxcvbn,.-_"),
+    list("1234567890"),
+    [" ", "\b", "\n", "maj", "fermer"],
+)
+LIBELLES = {
+    " ": "esp",
+    "\b": "eff",
+    "\n": "ok",
+    "maj": "MAJ",
+    "fermer": "fin",
+}
+
+
+def zones(larg, haut):
+    marge = 4
+    nh = len(RANGS)
+    h = (haut - marge * (nh + 1)) // nh
+    touches = []
+    y = marge
+    for rang in RANGS:
+        nw = len(rang)
+        w = (larg - marge * (nw + 1)) // nw
+        x = marge
+        for cle in rang:
+            touches.append((x, y, w, h, cle))
+            x += w + marge
+        y += h + marge
+    return touches
+
+
+def chercher(touches, px, py):
+    for x, y, w, h, cle in touches:
+        if x <= px < x + w and y <= py < y + h:
+            return cle
+    return None
+
+
+class XButtonEvent(ctypes.Structure):
+    _fields_ = [
+        ("type", ctypes.c_int),
+        ("serial", ctypes.c_ulong),
+        ("send_event", ctypes.c_int),
+        ("display", ctypes.c_void_p),
+        ("window", ctypes.c_ulong),
+        ("root", ctypes.c_ulong),
+        ("subwindow", ctypes.c_ulong),
+        ("time", ctypes.c_ulong),
+        ("x", ctypes.c_int),
+        ("y", ctypes.c_int),
+        ("x_root", ctypes.c_int),
+        ("y_root", ctypes.c_int),
+        ("state", ctypes.c_uint),
+        ("button", ctypes.c_uint),
+        ("same_screen", ctypes.c_int),
+    ]
+
+
+class XEventPad(ctypes.Union):
+    _fields_ = [
+        ("b", XButtonEvent),
+        ("raw", ctypes.c_char * 256),
+    ]
+
+
+class XSetWindowAttributes(ctypes.Structure):
+    _fields_ = [
+        ("background_pixmap", ctypes.c_ulong),
+        ("background_pixel", ctypes.c_ulong),
+        ("border_pixmap", ctypes.c_ulong),
+        ("border_pixel", ctypes.c_ulong),
+        ("bit_gravity", ctypes.c_int),
+        ("win_gravity", ctypes.c_int),
+        ("backing_store", ctypes.c_int),
+        ("backing_planes", ctypes.c_ulong),
+        ("backing_pixel", ctypes.c_ulong),
+        ("save_under", ctypes.c_int),
+        ("event_mask", ctypes.c_long),
+        ("do_not_propagate_mask", ctypes.c_long),
+        ("override_redirect", ctypes.c_int),
+        ("colormap", ctypes.c_ulong),
+        ("cursor", ctypes.c_ulong),
+    ]
+
+
+def preparer_x():
+    x11 = ctypes.CDLL("libX11.so.6")
+    xtst = ctypes.CDLL("libXtst.so.6")
+    x11.XOpenDisplay.restype = ctypes.c_void_p
+    x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+    x11.XDefaultScreen.argtypes = [ctypes.c_void_p]
+    x11.XDefaultScreen.restype = ctypes.c_int
+    x11.XDisplayWidth.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    x11.XDisplayWidth.restype = ctypes.c_int
+    x11.XDisplayHeight.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    x11.XDisplayHeight.restype = ctypes.c_int
+    x11.XRootWindow.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    x11.XRootWindow.restype = ctypes.c_ulong
+    x11.XBlackPixel.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    x11.XBlackPixel.restype = ctypes.c_ulong
+    x11.XWhitePixel.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    x11.XWhitePixel.restype = ctypes.c_ulong
+    x11.XCreateSimpleWindow.argtypes = [
+        ctypes.c_void_p, ctypes.c_ulong,
+        ctypes.c_int, ctypes.c_int, ctypes.c_uint, ctypes.c_uint,
+        ctypes.c_uint, ctypes.c_ulong, ctypes.c_ulong,
+    ]
+    x11.XCreateSimpleWindow.restype = ctypes.c_ulong
+    x11.XChangeWindowAttributes.argtypes = [
+        ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p
+    ]
+    x11.XSelectInput.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_long]
+    x11.XMapWindow.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+    x11.XFlush.argtypes = [ctypes.c_void_p]
+    x11.XNextEvent.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    x11.XClearWindow.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+    x11.XCreateGC.argtypes = [
+        ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p
+    ]
+    x11.XCreateGC.restype = ctypes.c_void_p
+    x11.XSetForeground.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ulong]
+    x11.XDrawRectangle.argtypes = [
+        ctypes.c_void_p, ctypes.c_ulong, ctypes.c_void_p,
+        ctypes.c_int, ctypes.c_int, ctypes.c_uint, ctypes.c_uint,
+    ]
+    x11.XDrawString.argtypes = [
+        ctypes.c_void_p, ctypes.c_ulong, ctypes.c_void_p,
+        ctypes.c_int, ctypes.c_int, ctypes.c_char_p, ctypes.c_int,
+    ]
+    x11.XStringToKeysym.argtypes = [ctypes.c_char_p]
+    x11.XStringToKeysym.restype = ctypes.c_ulong
+    x11.XKeysymToKeycode.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+    x11.XKeysymToKeycode.restype = ctypes.c_uint
+    xtst.XTestFakeKeyEvent.argtypes = [
+        ctypes.c_void_p, ctypes.c_uint, ctypes.c_int, ctypes.c_ulong
+    ]
+    return x11, xtst
+
+
+def envoyer_touche(x11, xtst, ecran, cle, maj):
+    if cle == " ":
+        nom = b"space"
+    elif cle == "\b":
+        nom = b"BackSpace"
+    elif cle == "\n":
+        nom = b"Return"
+    elif cle.isalpha() and maj:
+        nom = cle.upper().encode("ascii")
+    else:
+        nom = cle.encode("ascii")
+    code = x11.XKeysymToKeycode(ecran, x11.XStringToKeysym(nom))
+    if not code:
+        return
+    shift = 0
+    if maj and cle.isalpha():
+        shift = x11.XKeysymToKeycode(ecran, 0xFFE1)
+    if shift:
+        xtst.XTestFakeKeyEvent(ecran, shift, 1, 0)
+    xtst.XTestFakeKeyEvent(ecran, code, 1, 0)
+    xtst.XTestFakeKeyEvent(ecran, code, 0, 0)
+    if shift:
+        xtst.XTestFakeKeyEvent(ecran, shift, 0, 0)
+    x11.XFlush(ecran)
+
+
+def dessiner(x11, ecran, fenetre, gc, blanc, touches, maj):
+    x11.XSetForeground(ecran, gc, blanc)
+    x11.XClearWindow(ecran, fenetre)
+    for x, y, w, h, cle in touches:
+        x11.XDrawRectangle(ecran, fenetre, gc, x, y, w - 1, h - 1)
+        texte = LIBELLES.get(cle, cle)
+        if maj and cle.isalpha():
+            texte = cle.upper()
+        brut = texte.encode("ascii")
+        x11.XDrawString(ecran, fenetre, gc, x + 8, y + h // 2 + 4, brut, len(brut))
+    x11.XFlush(ecran)
+
+
+def main():
+    try:
+        os.makedirs("/run", exist_ok=True)
+        verrou = os.open("/run/r36os-clavier.lock", os.O_CREAT | os.O_RDWR, 0o644)
+        fcntl.flock(verrou, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return 0
+
+    x11, xtst = preparer_x()
+    ecran = x11.XOpenDisplay(None)
+    if not ecran:
+        return 1
+    n = x11.XDefaultScreen(ecran)
+    larg_ecran = x11.XDisplayWidth(ecran, n)
+    haut_ecran = x11.XDisplayHeight(ecran, n)
+    larg = larg_ecran
+    haut = 220
+    if haut_ecran < 400:
+        haut = 160
+    y = max(0, haut_ecran - haut - 40)
+    noir = x11.XBlackPixel(ecran, n)
+    blanc = x11.XWhitePixel(ecran, n)
+    fenetre = x11.XCreateSimpleWindow(
+        ecran, x11.XRootWindow(ecran, n), 0, y, larg, haut, 0, noir, noir
+    )
+    attr = XSetWindowAttributes()
+    attr.override_redirect = 1
+    x11.XChangeWindowAttributes(ecran, fenetre, 1 << 9, ctypes.byref(attr))
+    x11.XSelectInput(ecran, fenetre, (1 << 2) | (1 << 15))
+    x11.XMapWindow(ecran, fenetre)
+    gc = x11.XCreateGC(ecran, fenetre, 0, None)
+    touches = zones(larg, haut)
+    maj = False
+    if os.environ.get("R36OS_CLAVIER_ESSAI") == "1":
+        dessiner(x11, ecran, fenetre, gc, blanc, touches, maj)
+        return 0
+    ev = XEventPad()
+    while True:
+        x11.XNextEvent(ecran, ctypes.byref(ev))
+        if ev.b.type == 12:
+            dessiner(x11, ecran, fenetre, gc, blanc, touches, maj)
+        elif ev.b.type == 4:
+            cle = chercher(touches, ev.b.x, ev.b.y)
+            if cle == "fermer":
+                return 0
+            if cle == "maj":
+                maj = not maj
+                dessiner(x11, ecran, fenetre, gc, blanc, touches, maj)
+            elif cle:
+                envoyer_touche(x11, xtst, ecran, cle, maj)
+                if maj and cle.isalpha():
+                    maj = False
+                    dessiner(x11, ecran, fenetre, gc, blanc, touches, maj)
+
+
+if __name__ == "__main__":
+    sys.exit(main() or 0)

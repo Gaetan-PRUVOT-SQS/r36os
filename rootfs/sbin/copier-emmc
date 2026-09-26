@@ -1,0 +1,362 @@
+#!/usr/bin/python3
+# Copie r36os sur la puce interne. Ne touche pas au chargeur ni au PC.
+import importlib.util
+import os
+import re
+import struct
+import subprocess
+import time
+
+MIN_OCTETS = 6 * 1024 * 1024 * 1024
+MAX_OCTETS = 10 * 1024 * 1024 * 1024
+SECTEUR = 512
+SAUVEGARDE = "/root/sauvegarde-emmc-debut.bin"
+effacee = False
+
+
+def dire(texte):
+    print(texte, flush=True)
+
+
+def ecrire_tout(fd, data):
+    vu = 0
+    while vu < len(data):
+        n = os.write(fd, data[vu:])
+        if n <= 0:
+            dire("r36os: ecriture impossible")
+            raise SystemExit(1)
+        vu += n
+
+
+def lire_texte(chemin):
+    try:
+        with open(chemin, "r", errors="replace") as f:
+            return f.read()
+    except OSError:
+        dire("r36os: lecture impossible %s" % chemin)
+        raise SystemExit(1)
+
+
+def poser_texte(chemin, texte):
+    dossier = os.path.dirname(chemin)
+    tmp = chemin + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    try:
+        ecrire_tout(fd, texte.encode())
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.replace(tmp, chemin)
+    sync_chemin(dossier)
+
+
+def sync_chemin(chemin):
+    fd = os.open(chemin, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def charger_cible():
+    candidats = []
+    env = os.environ.get("R36OS_CIBLE", "")
+    if env:
+        candidats.append(env)
+    candidats.append("/usr/lib/r36os/cible.py")
+    for chemin in candidats:
+        if not os.path.isfile(chemin):
+            continue
+        spec = importlib.util.spec_from_file_location("r36os_cible", chemin)
+        if spec is None or spec.loader is None:
+            continue
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    dire("r36os: description de la puce absente")
+    raise SystemExit(1)
+
+
+def disque_de(noeud):
+    nom = os.path.basename(noeud)
+    if nom.startswith("mmcblk") and "p" in nom:
+        return "/dev/" + nom.rsplit("p", 1)[0]
+    return noeud
+
+
+def taille_octets(disque):
+    nom = os.path.basename(disque)
+    with open("/sys/block/%s/size" % nom) as f:
+        return int(f.read().strip()) * SECTEUR
+
+
+def premiers_departs(disque):
+    fd = os.open(disque, os.O_RDONLY)
+    try:
+        os.lseek(fd, 0, os.SEEK_SET)
+        secteur0 = os.read(fd, SECTEUR)
+        os.lseek(fd, SECTEUR, os.SEEK_SET)
+        secteur1 = os.read(fd, SECTEUR)
+    finally:
+        os.close(fd)
+    departs = []
+    if secteur0[510:512] == b"\x55\xaa":
+        for i in range(4):
+            ent = secteur0[446 + i * 16:446 + (i + 1) * 16]
+            debut = struct.unpack("<I", ent[8:12])[0]
+            nombre = struct.unpack("<I", ent[12:16])[0]
+            if nombre:
+                departs.append(debut)
+    if secteur1[:8] == b"EFI PART":
+        entree_lba = struct.unpack("<Q", secteur1[48:56])[0]
+        nb = struct.unpack("<I", secteur1[80:84])[0]
+        taille = struct.unpack("<I", secteur1[84:88])[0]
+        fd = os.open(disque, os.O_RDONLY)
+        try:
+            os.lseek(fd, entree_lba * SECTEUR, os.SEEK_SET)
+            table = os.read(fd, nb * taille)
+        finally:
+            os.close(fd)
+        for i in range(nb):
+            ent = table[i * taille:(i + 1) * taille]
+            if ent[:16] == b"\0" * 16:
+                continue
+            debut = struct.unpack("<Q", ent[32:40])[0]
+            fin = struct.unpack("<Q", ent[40:48])[0]
+            if fin >= debut:
+                departs.append(debut)
+    return departs
+
+
+def octets(chemin):
+    try:
+        texte = subprocess.check_output(
+            ["du", "-sbx", chemin], text=True, stderr=subprocess.DEVNULL
+        )
+        return int(texte.split()[0])
+    except (OSError, subprocess.CalledProcessError, ValueError, IndexError):
+        return 0
+
+
+def lancer(cmd):
+    r = subprocess.call(cmd)
+    if r != 0:
+        dire("r36os: commande en echec: %s" % " ".join(cmd))
+        raise SystemExit(1)
+
+
+def monter(source, cible):
+    os.makedirs(cible, exist_ok=True)
+    lancer(["mount", source, cible])
+
+
+def demonter(cible):
+    r = subprocess.call(["umount", cible])
+    if r != 0:
+        dire("r36os: demontage impossible %s" % cible)
+        raise SystemExit(1)
+
+
+def puce():
+    racine = subprocess.check_output(
+        ["findmnt", "-n", "-o", "SOURCE", "/"], text=True
+    ).strip()
+    carte = "/dev/" + subprocess.check_output(
+        ["lsblk", "-ndo", "PKNAME", racine], text=True
+    ).strip()
+    trouves = []
+    for nom in os.listdir("/sys/block"):
+        if not nom.startswith("mmcblk"):
+            continue
+        disque = "/dev/" + nom
+        if disque == carte or not os.path.exists(disque):
+            continue
+        octets = taille_octets(disque)
+        if MIN_OCTETS <= octets <= MAX_OCTETS:
+            trouves.append(disque)
+    if len(trouves) != 1:
+        dire("r36os: puce interne introuvable")
+        raise SystemExit(1)
+    return trouves[0]
+
+
+def numero_mmc(chemin):
+    try:
+        with open(chemin, "r", errors="replace") as f:
+            texte = f.read()
+    except OSError:
+        return "0"
+    mot = re.search(r"mmc\s+(\d+)\s*:", texte)
+    if mot:
+        return mot.group(1)
+    return "0"
+
+
+def taille_sys(noeud):
+    nom = os.path.basename(noeud)
+    with open("/sys/class/block/%s/size" % nom) as f:
+        return int(f.read().strip())
+
+
+def relire_partitions(disque, p1, p2, p1n, p2n):
+    subprocess.call(["partx", "-d", disque])
+    lancer(["blockdev", "--rereadpt", disque])
+    for _ in range(20):
+        if os.path.exists(p1) and os.path.exists(p2):
+            try:
+                if taille_sys(p1) == p1n and taille_sys(p2) == p2n:
+                    return
+            except (OSError, ValueError):
+                pass
+        time.sleep(0.5)
+    dire("r36os: partitions absentes")
+    raise SystemExit(1)
+
+
+def main():
+    global effacee
+    cible = charger_cible()
+    disque = puce()
+    dire("r36os: puce %s" % disque)
+    secteurs = taille_octets(disque) // SECTEUR
+    if not os.path.exists(SAUVEGARDE):
+        lancer([
+            "dd", "if=%s" % disque, "of=%s" % SAUVEGARDE,
+            "bs=1M", "count=32", "conv=fsync",
+        ])
+    departs = [d for d in premiers_departs(disque) if d >= 64]
+    if departs:
+        debut = min(departs)
+    else:
+        debut = 32768
+    try:
+        p1n, p2d, p2n = cible.decoupe(secteurs, debut)
+    except ValueError:
+        dire("r36os: decoupe refusee")
+        raise SystemExit(1)
+
+    ancien = "/mnt/r36os-ancien-boot"
+    bootini_ancien = "/tmp/boot-interne.ini"
+    p1 = disque + "p1"
+    numero = "0"
+    os.makedirs(ancien, exist_ok=True)
+    if os.path.exists(p1) and subprocess.call(["mount", p1, ancien]) == 0:
+        if os.path.exists(ancien + "/boot.ini"):
+            subprocess.call(["cp", "-f", ancien + "/boot.ini", bootini_ancien])
+            numero = numero_mmc(bootini_ancien)
+        demonter(ancien)
+    dire("r36os: effacement du systeme d'origine")
+    effacee = True
+
+    fd = os.open(disque, os.O_RDWR)
+    try:
+        os.lseek(fd, 0, os.SEEK_SET)
+        lu = os.read(fd, SECTEUR)
+        if len(lu) != SECTEUR:
+            dire("r36os: lecture impossible")
+            raise SystemExit(1)
+        try:
+            secteur0, _, _, _ = cible.appliquer_table(lu, secteurs, debut)
+        except ValueError:
+            dire("r36os: decoupe refusee")
+            raise SystemExit(1)
+        os.lseek(fd, 0, os.SEEK_SET)
+        ecrire_tout(fd, secteur0)
+        os.lseek(fd, SECTEUR, os.SEEK_SET)
+        ecrire_tout(fd, b"\0" * (33 * SECTEUR))
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    lancer([
+        "dd", "if=/dev/zero", "of=%s" % disque,
+        "bs=%d" % SECTEUR, "seek=%d" % (secteurs - 34),
+        "count=34", "conv=fsync",
+    ])
+    relire_partitions(disque, p1, disque + "p2", p1n, p2n)
+
+    lancer(["/usr/bin/busybox", "mkfs.vfat", "-n", "BOOT", p1])
+    lancer([
+        "mkfs.ext4", "-F", "-b", str(cible.EXT4_BLOC),
+        "-E", "stride=%s,stripe_width=%s" % (
+            cible.EXT4_STRIDE, cible.EXT4_STRIDE
+        ),
+        "-L", "copie", disque + "p2",
+    ])
+
+    nouvelle = "/mnt/r36os-nouvelle"
+    nouveau_boot = "/mnt/r36os-nouveau-boot"
+    monter(disque + "p2", nouvelle)
+    exclu = [
+        "--one-file-system",
+        "--exclude=./proc", "--exclude=./sys", "--exclude=./dev",
+        "--exclude=./run", "--exclude=./tmp", "--exclude=./mnt",
+        "--exclude=./etc/r36os-ecraser-interne",
+        "--exclude=./root/sauvegarde-emmc-debut.bin",
+    ]
+    total = octets("/")
+    lecture = subprocess.Popen(
+        ["tar", "-C", "/", "-cf", "-"] + exclu + ["."],
+        stdout=subprocess.PIPE,
+    )
+    ecriture = subprocess.Popen(
+        ["tar", "-C", nouvelle, "-xf", "-"],
+        stdin=lecture.stdout,
+    )
+    lecture.stdout.close()
+    dernier = -1
+    while ecriture.poll() is None:
+        time.sleep(3)
+        if total:
+            fait = min(99, octets(nouvelle) * 100 // total)
+            if fait != dernier:
+                dire("r36os: copie %s%%" % fait)
+                dernier = fait
+    if ecriture.wait() != 0 or lecture.wait() != 0:
+        dire("r36os: copie interrompue")
+        raise SystemExit(1)
+    dire("r36os: copie 100%")
+    for dossier in ("proc", "sys", "dev", "run", "tmp", "mnt"):
+        os.makedirs(nouvelle + "/" + dossier, exist_ok=True)
+    os.chmod(nouvelle + "/tmp", 0o1777)
+
+    source_boot = disque_de(
+        subprocess.check_output(
+            ["findmnt", "-n", "-o", "SOURCE", "/"], text=True
+        ).strip()
+    ) + "p1"
+    monter(source_boot, ancien)
+    monter(p1, nouveau_boot)
+    for nom in ("Image", "uInitrd", "rk3326-r36max-type1-linux.dtb"):
+        lancer(["cp", "-f", ancien + "/" + nom, nouveau_boot + "/" + nom])
+        sync_chemin(nouveau_boot + "/" + nom)
+    texte = lire_texte(ancien + "/boot.ini")
+    texte = re.sub(r"mmc\s+\d+\s*:", "mmc %s:" % numero, texte)
+    poser_texte(nouveau_boot + "/boot.ini", texte)
+    os.sync()
+    demonter(nouveau_boot)
+    demonter(ancien)
+    demonter(nouvelle)
+    racine = subprocess.check_output(
+        ["findmnt", "-n", "-o", "SOURCE", "/"], text=True
+    ).strip()
+    lancer(["tune2fs", "-L", "live", racine])
+    monter(source_boot, ancien)
+    carte = lire_texte(ancien + "/boot.ini")
+    carte = re.sub(r"mmc\s+\d+\s*:", "mmc %s:" % numero, carte)
+    poser_texte(ancien + "/boot.ini", carte)
+    demonter(ancien)
+    lancer(["tune2fs", "-L", "r36os", disque + "p2"])
+    os.sync()
+    dire("r36os: installation terminee")
+    dire("Redemarrage sur la memoire interne")
+    time.sleep(3)
+    subprocess.call(["/usr/bin/busybox", "reboot", "-f"])
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except SystemExit as exc:
+        if exc.code not in (0, None) and effacee:
+            dire("r36os: la carte ouvre encore son bureau. Relance Installer.")
+        raise

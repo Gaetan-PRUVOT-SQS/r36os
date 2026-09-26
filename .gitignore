@@ -1,0 +1,5 @@
+out/
+debian-root/
+docs/
+__pycache__/
+*.pyc

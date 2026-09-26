@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Wifi
+Exec=qterminal -e /usr/bin/r36os-wifi
+Icon=network-wireless
+Terminal=false
+Categories=System;Network;

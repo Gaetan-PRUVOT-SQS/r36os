@@ -1,0 +1,69 @@
+#!/bin/sh
+
+export PATH=/bin
+
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+
+part=""
+live=""
+i=0
+# 10 Go, en secteurs de 512. La puce est en dessous, la carte au-dessus.
+seuil=20971520
+while [ -z "$part" ] && [ "$i" -lt 20 ]; do
+  live=""
+  interne=""
+  carte=""
+  for candidat in /dev/mmcblk*p*; do
+    if [ ! -b "$candidat" ]; then
+      continue
+    fi
+    nom=$(dd if="$candidat" bs=1 skip=1144 count=16 2>/dev/null | tr -d '\000')
+    if [ "$nom" = "live" ]; then
+      live=$candidat
+    fi
+    if [ "$nom" != "r36os" ]; then
+      continue
+    fi
+    noeud=${candidat##*/}
+    disque=${noeud%p*}
+    octets=$(cat "/sys/block/$disque/size" 2>/dev/null || echo 0)
+    if [ "$octets" -gt "$seuil" ]; then
+      carte=$candidat
+    else
+      interne=$candidat
+    fi
+  done
+  if [ -n "$carte" ]; then
+    part=$carte
+  else
+    part=$interne
+  fi
+  if [ -n "$part" ]; then
+    break
+  fi
+  i=$((i + 1))
+  sleep 1
+done
+
+if [ -z "$part" ]; then
+  part=$live
+fi
+
+if [ -z "$part" ]; then
+  echo "r36os: racine introuvable"
+  exec /bin/sh
+fi
+
+mkdir -p /newroot
+
+if ! mount -t ext4 "$part" /newroot; then
+  echo "r36os: racine illisible"
+  exec /bin/sh
+fi
+
+mount --move /proc /newroot/proc
+mount --move /sys /newroot/sys
+mount --move /dev /newroot/dev
+exec switch_root /newroot /sbin/init

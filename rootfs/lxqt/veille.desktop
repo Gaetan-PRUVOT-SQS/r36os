@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=Veille ecran
+Exec=/usr/bin/r36os-veille
+OnlyShowIn=LXQt;

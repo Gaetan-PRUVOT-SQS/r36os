@@ -1,0 +1,59 @@
+#!/bin/sh
+dossier=""
+for d in /sys/class/backlight/*; do
+  if [ -r "$d/brightness" ] && [ -r "$d/max_brightness" ]; then
+    dossier=$d
+    break
+  fi
+done
+if [ -z "$dossier" ]; then
+  echo "--"
+  exit 0
+fi
+max=$(cat "$dossier/max_brightness")
+cur=$(cat "$dossier/brightness")
+sauve=/var/lib/r36os/luminosite
+mkdir -p /var/lib/r36os
+
+ecrire() {
+  v=$1
+  if [ "$v" -lt 1 ]; then
+    v=1
+  fi
+  if [ "$v" -gt "$max" ]; then
+    v=$max
+  fi
+  echo "$v" > "$dossier/brightness" 2>/dev/null || true
+  echo "$v" > "$sauve" 2>/dev/null || true
+}
+
+case "$1" in
+  +)
+    pas=$((max / 10))
+    if [ "$pas" -lt 1 ]; then
+      pas=1
+    fi
+    ecrire $((cur + pas))
+    ;;
+  -)
+    pas=$((max / 10))
+    if [ "$pas" -lt 1 ]; then
+      pas=1
+    fi
+    ecrire $((cur - pas))
+    ;;
+  poser)
+    if [ -r "$sauve" ]; then
+      ecrire "$(cat "$sauve")"
+    else
+      ecrire $((max * 70 / 100))
+    fi
+    ;;
+  *)
+    if [ "$max" -gt 0 ]; then
+      echo "lum $((cur * 100 / max))%"
+    else
+      echo "--"
+    fi
+    ;;
+esac

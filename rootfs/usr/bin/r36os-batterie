@@ -1,0 +1,14 @@
+#!/bin/sh
+for d in /sys/class/power_supply/*; do
+  if [ ! -r "$d/capacity" ]; then
+    continue
+  fi
+  cap=$(cat "$d/capacity")
+  st=$(cat "$d/status" 2>/dev/null)
+  case "$st" in
+    Charging|Full) echo "${cap}% +" ;;
+    *) echo "${cap}%" ;;
+  esac
+  exit 0
+done
+echo "--"

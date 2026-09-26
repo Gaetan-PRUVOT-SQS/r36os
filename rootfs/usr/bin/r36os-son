@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+# Le codec RK817 passe par Alsa. Pulse n'est pas lancé.
+import ctypes
+import os
+import sys
+
+SAUVE = "/var/lib/r36os/son"
+NOMS = (b"default", b"sysdefault", b"hw:0")
+
+
+def borner(v):
+    if v < 0:
+        return 0
+    if v > 100:
+        return 100
+    return v
+
+
+def lire():
+    try:
+        mots = open(SAUVE, "r", encoding="utf-8").read().split()
+    except OSError:
+        return 70, False
+    if not mots:
+        return 70, False
+    if mots[0] == "muet":
+        niveau = int(mots[1]) if len(mots) > 1 else 70
+        return borner(niveau), True
+    try:
+        return borner(int(mots[0])), False
+    except ValueError:
+        return 70, False
+
+
+def ecrire(niveau, muet):
+    try:
+        os.makedirs("/var/lib/r36os", exist_ok=True)
+        if muet:
+            open(SAUVE, "w", encoding="utf-8").write("muet %s\n" % niveau)
+        else:
+            open(SAUVE, "w", encoding="utf-8").write("%s\n" % niveau)
+    except OSError:
+        pass
+
+
+def ouvrir():
+    import ctypes
+    alsa = ctypes.CDLL("libasound.so.2")
+    alsa.snd_mixer_open.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_int]
+    alsa.snd_mixer_attach.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+    alsa.snd_mixer_selem_register.argtypes = [
+        ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p
+    ]
+    alsa.snd_mixer_load.argtypes = [ctypes.c_void_p]
+    alsa.snd_mixer_first_elem.argtypes = [ctypes.c_void_p]
+    alsa.snd_mixer_first_elem.restype = ctypes.c_void_p
+    alsa.snd_mixer_elem_next.argtypes = [ctypes.c_void_p]
+    alsa.snd_mixer_elem_next.restype = ctypes.c_void_p
+    alsa.snd_mixer_selem_has_playback_volume.argtypes = [ctypes.c_void_p]
+    alsa.snd_mixer_selem_has_playback_switch.argtypes = [ctypes.c_void_p]
+    alsa.snd_mixer_selem_get_playback_volume_range.argtypes = [
+        ctypes.c_void_p, ctypes.POINTER(ctypes.c_long), ctypes.POINTER(ctypes.c_long)
+    ]
+    alsa.snd_mixer_selem_set_playback_volume_all.argtypes = [ctypes.c_void_p, ctypes.c_long]
+    alsa.snd_mixer_selem_set_playback_switch_all.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    alsa.snd_mixer_close.argtypes = [ctypes.c_void_p]
+    for nom in NOMS:
+        mix = ctypes.c_void_p()
+        if alsa.snd_mixer_open(ctypes.byref(mix), 0) < 0:
+            continue
+        if alsa.snd_mixer_attach(mix, nom) < 0:
+            alsa.snd_mixer_close(mix)
+            continue
+        alsa.snd_mixer_selem_register(mix, None, None)
+        if alsa.snd_mixer_load(mix) < 0:
+            alsa.snd_mixer_close(mix)
+            continue
+        return alsa, mix
+    return None, None
+
+
+def appliquer(niveau, muet):
+    alsa, mix = ouvrir()
+    if not alsa:
+        return
+    elem = alsa.snd_mixer_first_elem(mix)
+    while elem:
+        if alsa.snd_mixer_selem_has_playback_volume(elem):
+            bas = ctypes.c_long()
+            haut = ctypes.c_long()
+            alsa.snd_mixer_selem_get_playback_volume_range(
+                elem, ctypes.byref(bas), ctypes.byref(haut)
+            )
+            if muet:
+                valeur = bas.value
+            else:
+                valeur = bas.value + (haut.value - bas.value) * niveau // 100
+            alsa.snd_mixer_selem_set_playback_volume_all(elem, valeur)
+        if alsa.snd_mixer_selem_has_playback_switch(elem):
+            alsa.snd_mixer_selem_set_playback_switch_all(elem, 0 if muet else 1)
+        elem = alsa.snd_mixer_elem_next(elem)
+    alsa.snd_mixer_close(mix)
+
+
+def main():
+    niveau, muet = lire()
+    arg = sys.argv[1] if len(sys.argv) > 1 else ""
+    if arg == "+":
+        niveau = borner(niveau + 8)
+        muet = False
+    elif arg == "-":
+        niveau = borner(niveau - 8)
+        muet = False
+    elif arg == "muet":
+        muet = not muet
+    ecrire(niveau, muet)
+    try:
+        appliquer(niveau, muet)
+    except OSError:
+        pass
+
+
+if __name__ == "__main__":
+    main()

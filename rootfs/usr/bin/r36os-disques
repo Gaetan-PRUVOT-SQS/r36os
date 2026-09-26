@@ -1,0 +1,66 @@
+#!/bin/sh
+export LD_LIBRARY_PATH=/lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+
+mkdir -p /media/jeux /media/tf2
+racine=$(findmnt -n -o SOURCE / 2>/dev/null || true)
+
+monte() {
+  dev=$1
+  ou=$2
+  if findmnt -n "$ou" >/dev/null 2>&1; then
+    return 0
+  fi
+  if findmnt -n "$dev" >/dev/null 2>&1; then
+    return 1
+  fi
+  if [ -x /bin/ntfs-3g ]; then
+    if ntfs-3g "$dev" "$ou" -o rw,noatime,uid=0,gid=0,umask=000; then
+      return 0
+    fi
+  fi
+  if mount -o rw,noatime "$dev" "$ou"; then
+    return 0
+  fi
+  mount -t vfat -o rw,noatime,uid=0,gid=0,umask=000 "$dev" "$ou"
+}
+
+extra=""
+for dev in $(blkid -o device 2>/dev/null | sort); do
+  case $dev in
+    /dev/mmcblk*) ;;
+    *) continue ;;
+  esac
+  if [ "$dev" = "$racine" ]; then
+    continue
+  fi
+  label=$(blkid -o value -s LABEL "$dev" 2>/dev/null || true)
+  typ=$(blkid -o value -s TYPE "$dev" 2>/dev/null || true)
+  lab=$(printf '%s' "$label" | tr 'A-Z' 'a-z')
+  if [ "$lab" = "easyroms" ]; then
+    monte "$dev" /media/jeux || true
+    continue
+  fi
+  if [ "$lab" = "boot" ]; then
+    continue
+  fi
+  case $typ in
+    ntfs|vfat|exfat) extra="$extra $dev" ;;
+  esac
+done
+
+if ! findmnt -n /media/jeux >/dev/null 2>&1; then
+  for dev in $extra; do
+    if monte "$dev" /media/jeux; then
+      extra=$(printf '%s' "$extra" | sed "s|$dev||")
+      break
+    fi
+  done
+fi
+
+if ! findmnt -n /media/tf2 >/dev/null 2>&1; then
+  for dev in $extra; do
+    if monte "$dev" /media/tf2; then
+      break
+    fi
+  done
+fi

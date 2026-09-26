@@ -1,0 +1,52 @@
+#!/bin/sh
+
+for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+  if [ -f "$g" ]; then
+    echo performance > "$g" 2>/dev/null || true
+  fi
+done
+
+for s in /sys/block/mmcblk*/queue/scheduler; do
+  if [ -f "$s" ]; then
+    echo deadline > "$s" 2>/dev/null || echo noop > "$s" 2>/dev/null || true
+  fi
+done
+
+for r in /sys/block/mmcblk*/queue/read_ahead_kb; do
+  if [ -f "$r" ]; then
+    echo 256 > "$r" 2>/dev/null || true
+  fi
+done
+
+mount -o remount,noatime / 2>/dev/null || true
+
+echo 3 > /proc/sys/vm/dirty_background_ratio 2>/dev/null || true
+echo 10 > /proc/sys/vm/dirty_ratio 2>/dev/null || true
+echo 50 > /proc/sys/vm/vfs_cache_pressure 2>/dev/null || true
+echo 8192 > /proc/sys/vm/min_free_kbytes 2>/dev/null || true
+echo 0 > /proc/sys/kernel/nmi_watchdog 2>/dev/null || true
+echo 3 > /proc/sys/kernel/printk 2>/dev/null || true
+
+if [ -f /sys/kernel/mm/transparent_hugepage/enabled ]; then
+  echo never > /sys/kernel/mm/transparent_hugepage/enabled 2>/dev/null || true
+fi
+
+for q in /sys/block/mmcblk*/queue/add_random; do
+  if [ -f "$q" ]; then
+    echo 0 > "$q" 2>/dev/null || true
+  fi
+done
+
+if [ -e /sys/block/zram0/disksize ]; then
+  if [ -f /sys/block/zram0/comp_algorithm ]; then
+    echo lzo > /sys/block/zram0/comp_algorithm 2>/dev/null \
+      || echo lzo-rle > /sys/block/zram0/comp_algorithm 2>/dev/null \
+      || true
+  fi
+  echo 268435456 > /sys/block/zram0/disksize 2>/dev/null || true
+  mkswap /dev/zram0 >/dev/null 2>&1 || true
+  swapon /dev/zram0 >/dev/null 2>&1 || true
+  echo 100 > /proc/sys/vm/swappiness 2>/dev/null || true
+else
+  echo 10 > /proc/sys/vm/swappiness 2>/dev/null || true
+fi
