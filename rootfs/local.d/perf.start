@@ -1,4 +1,5 @@
 #!/bin/sh
+# Reglages du RK3326. Lance par le service local d'OpenRC.
 
 for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
   if [ -f "$g" ]; then
@@ -17,8 +18,6 @@ for r in /sys/block/mmcblk*/queue/read_ahead_kb; do
     echo 256 > "$r" 2>/dev/null || true
   fi
 done
-
-mount -o remount,noatime / 2>/dev/null || true
 
 echo 3 > /proc/sys/vm/dirty_background_ratio 2>/dev/null || true
 echo 10 > /proc/sys/vm/dirty_ratio 2>/dev/null || true

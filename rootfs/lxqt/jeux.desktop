@@ -1,7 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Jeux
-Exec=pcmanfm-qt /media/jeux
-Icon=folder
-Terminal=false
-Categories=System;FileManager;

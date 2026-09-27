@@ -141,38 +141,6 @@ def lancer(cmd):
         pass
 
 
-def ouvrir_menu():
-    import ctypes
-    x11 = ctypes.CDLL("libX11.so.6")
-    xtst = ctypes.CDLL("libXtst.so.6")
-    x11.XOpenDisplay.restype = ctypes.c_void_p
-    x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
-    ecran = x11.XOpenDisplay(None)
-    if not ecran:
-        return
-    x11.XDefaultScreen.argtypes = [ctypes.c_void_p]
-    x11.XDefaultScreen.restype = ctypes.c_int
-    x11.XDisplayWidth.argtypes = [ctypes.c_void_p, ctypes.c_int]
-    x11.XDisplayWidth.restype = ctypes.c_int
-    x11.XDisplayHeight.argtypes = [ctypes.c_void_p, ctypes.c_int]
-    x11.XDisplayHeight.restype = ctypes.c_int
-    x11.XFlush.argtypes = [ctypes.c_void_p]
-    x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
-    xtst.XTestFakeMotionEvent.argtypes = [
-        ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_ulong
-    ]
-    xtst.XTestFakeButtonEvent.argtypes = [
-        ctypes.c_void_p, ctypes.c_uint, ctypes.c_int, ctypes.c_ulong
-    ]
-    n = x11.XDefaultScreen(ecran)
-    hauteur = x11.XDisplayHeight(ecran, n)
-    xtst.XTestFakeMotionEvent(ecran, n, 24, max(0, hauteur - 16), 0)
-    xtst.XTestFakeButtonEvent(ecran, 1, 1, 0)
-    xtst.XTestFakeButtonEvent(ecran, 1, 0, 0)
-    x11.XFlush(ecran)
-    x11.XCloseDisplay(ecran)
-
-
 def lire_bornes(fd):
     import fcntl
     bornes = {}
@@ -191,9 +159,9 @@ def lire_bornes(fd):
 
 def action(code):
     if code == BOUTON_Y:
-        lancer(["pcmanfm-qt", "/media/jeux"])
+        lancer(["pcmanfm", "/media/jeux"])
     elif code == BOUTON_START:
-        lancer(["qterminal"])
+        lancer(["xterm"])
     elif code == BOUTON_L:
         lancer(["/usr/bin/r36os-luminosite", "-"])
     elif code == BOUTON_R:
@@ -201,7 +169,7 @@ def action(code):
     elif code == BOUTON_SELECT:
         lancer(["/usr/bin/r36os-son", "muet"])
     elif code == BOUTON_X:
-        ouvrir_menu()
+        lancer(["/usr/bin/r36os-menu"])
 
 
 def boucle(manette, pointeur):

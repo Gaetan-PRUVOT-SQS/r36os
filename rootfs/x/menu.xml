@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<openbox_menu xmlns="http://openbox.org/3.4/menu">
+  <menu id="root-menu" label="r36os">
+    <item label="Terminal">
+      <action name="Execute"><command>xterm</command></action>
+    </item>
+    <item label="Fichiers">
+      <action name="Execute"><command>pcmanfm /root</command></action>
+    </item>
+    <item label="Jeux">
+      <action name="Execute"><command>pcmanfm /media/jeux</command></action>
+    </item>
+    <item label="Wifi">
+      <action name="Execute"><command>xterm -e /usr/bin/r36os-wifi</command></action>
+    </item>
+    <item label="Clavier">
+      <action name="Execute"><command>/usr/bin/r36os-clavier</command></action>
+    </item>
+    <item label="Cartes">
+      <action name="Execute"><command>/usr/bin/r36os-disques</command></action>
+    </item>
+    <separator />
+    <item label="Redemarrer">
+      <action name="Execute"><command>reboot</command></action>
+    </item>
+    <item label="Eteindre">
+      <action name="Execute"><command>poweroff</command></action>
+    </item>
+  </menu>
+</openbox_menu>

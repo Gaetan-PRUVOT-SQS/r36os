@@ -1,0 +1,14 @@
+#!/bin/sh
+# Demonte les cartes avant killprocs. ntfs-3g finit d'ecrire apres umount.
+
+sync
+for m in /media/jeux /media/tf2; do
+  umount "$m" 2>/dev/null || true
+done
+
+i=0
+while [ "$i" -lt 10 ] && pidof ntfs-3g >/dev/null 2>&1; do
+  i=$((i + 1))
+  sleep 1
+done
+sync

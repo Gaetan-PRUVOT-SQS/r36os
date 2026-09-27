@@ -18,6 +18,10 @@ if [ "${1:-}" != "--ecrire" ]; then
   exit 0
 fi
 
+if [ "$(id -u)" -ne 0 ]; then
+  echo "Lance ce script avec sudo." >&2
+  exit 1
+fi
 if [ ! -x "$outil" ] || [ ! -f "$chargeur" ]; then
   echo "Outil ou chargeur absent." >&2
   exit 1
@@ -48,16 +52,6 @@ if [ "$nombre" != "1" ]; then
   exit 1
 fi
 
-export DISPLAY="${DISPLAY:-:0}"
-export SUDO_ASKPASS="$racine/scripts/askpass-puce.sh"
-cat > "$SUDO_ASKPASS" << 'EOF'
-#!/bin/sh
-export DISPLAY="${DISPLAY:-:0}"
-zenity --password --title="Ecrire la puce r36os"
-EOF
-chmod 700 "$SUDO_ASKPASS"
-trap 'rm -f "$SUDO_ASKPASS"' EXIT
-
 attendre_rfi() {
   i=0
   while [ "$i" -lt 20 ]; do
@@ -73,9 +67,9 @@ attendre_rfi() {
 if ! attendre_rfi; then
   "$outil" db "$chargeur"
   if ! attendre_rfi; then
-    sudo -A sh -c 'echo 0 > "$1/authorized"' sh "$ports"
+    echo 0 > "$ports/authorized"
     sleep 1
-    sudo -A sh -c 'echo 1 > "$1/authorized"' sh "$ports"
+    echo 1 > "$ports/authorized"
     sleep 1
     "$outil" db "$chargeur"
     if ! attendre_rfi; then

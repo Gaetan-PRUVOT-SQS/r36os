@@ -113,6 +113,12 @@ def main():
         muet = False
     elif arg == "muet":
         muet = not muet
+    elif arg == "etat":
+        if muet:
+            print("muet")
+        else:
+            print("son %d%%" % niveau)
+        return
     ecrire(niveau, muet)
     try:
         appliquer(niveau, muet)

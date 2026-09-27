@@ -1,5 +1,6 @@
 out/
 debian-root/
+alpine-root/
 docs/
 __pycache__/
 *.pyc

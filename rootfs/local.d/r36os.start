@@ -1,0 +1,19 @@
+#!/bin/sh
+# Premier demarrage : la racine prend toute la partition. Puis cartes et lumiere.
+
+marque=/var/lib/r36os/agrandie
+if [ ! -f "$marque" ]; then
+  disque=$(findmnt -n -o SOURCE / 2>/dev/null || true)
+  case "$disque" in
+    /dev/*)
+      echo "r36os: agrandit la racine"
+      if resize2fs "$disque"; then
+        mkdir -p /var/lib/r36os
+        : > "$marque"
+      fi
+      ;;
+  esac
+fi
+
+/usr/bin/r36os-disques || true
+/usr/bin/r36os-luminosite poser || true

@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Installer r36os
-Comment=Copier le systeme sur la memoire interne
-Exec=qterminal -e /usr/bin/r36os-installer
-Icon=drive-harddisk
-Terminal=false
-Categories=System;Utility;
-StartupNotify=true

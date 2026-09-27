@@ -1,5 +1,4 @@
 #!/bin/sh
-export LD_LIBRARY_PATH=/lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 export PATH=/usr/local/sbin:/usr/sbin:/sbin:/usr/bin:/bin
 
 iface=""
@@ -29,7 +28,12 @@ echo "Wifi sur $iface"
 printf "Nom du reseau : "
 read -r ssid
 printf "Mot de passe, vide si le reseau est ouvert : "
+# Le mot de passe ne s'affiche pas pendant la saisie.
+trap 'stty echo 2>/dev/null' EXIT
+stty -echo 2>/dev/null || true
 read -r cle
+stty echo 2>/dev/null || true
+echo
 case $ssid in
   ""|*\"*|*\\*)
     echo "r36os: nom refuse"
@@ -44,7 +48,14 @@ case $cle in
     exit 1
     ;;
 esac
+# WPA demande entre 8 et 63 caracteres.
+if [ -n "$cle" ] && { [ "${#cle}" -lt 8 ] || [ "${#cle}" -gt 63 ]; }; then
+  echo "r36os: le mot de passe doit faire de 8 a 63 caracteres"
+  sleep 4
+  exit 1
+fi
 
+umask 077
 mkdir -p /run/r36os /run/wpa_supplicant
 conf=/run/r36os/wpa.conf
 if [ -z "$cle" ]; then

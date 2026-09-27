@@ -1,5 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Disques
-Exec=/usr/bin/r36os-disques
-OnlyShowIn=LXQt;

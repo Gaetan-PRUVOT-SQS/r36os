@@ -1,5 +1,5 @@
 #!/bin/sh
-export LD_LIBRARY_PATH=/lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+export PATH=/usr/local/sbin:/usr/sbin:/sbin:/usr/bin:/bin
 
 mkdir -p /media/jeux /media/tf2
 racine=$(findmnt -n -o SOURCE / 2>/dev/null || true)
@@ -13,7 +13,7 @@ monte() {
   if findmnt -n "$dev" >/dev/null 2>&1; then
     return 1
   fi
-  if [ -x /bin/ntfs-3g ]; then
+  if command -v ntfs-3g >/dev/null 2>&1; then
     if ntfs-3g "$dev" "$ou" -o rw,noatime,uid=0,gid=0,umask=000; then
       return 0
     fi

@@ -1,6 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Son
-Exec=/usr/bin/r36os-son
-OnlyShowIn=LXQt;
-X-LXQt-Need-Tray=false

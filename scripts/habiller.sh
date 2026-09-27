@@ -1,5 +1,6 @@
 #!/bin/sh
-# Pose le même bureau sur une racine déjà copiée. Carte et puce passent par ici.
+# Pose la couche materiel r36os sur une racine Alpine deja copiee.
+# Voir docs/justifications/alpine.md
 set -eu
 
 if [ "$#" -ne 2 ]; then
@@ -9,97 +10,80 @@ fi
 
 racine=$1
 dest=$2
+r=$racine/rootfs
 
-install -d "$dest/sbin" "$dest/usr/bin" "$dest/usr/lib/r36os" \
-  "$dest/usr/share/lxqt" "$dest/usr/share/applications" \
-  "$dest/etc/X11/xorg.conf.d" "$dest/etc/xdg/autostart" \
-  "$dest/etc/fonts" "$dest/root/.config/lxqt" \
-  "$dest/root/.config/pcmanfm-qt/lxqt" \
-  "$dest/root/Desktop" "$dest/root/Bureau" \
-  "$dest/proc" "$dest/sys" "$dest/dev" "$dest/run" "$dest/tmp" "$dest/mnt" \
+install -d "$dest/usr/bin" "$dest/usr/lib/r36os" "$dest/etc/local.d" \
+  "$dest/etc/X11/xorg.conf.d" "$dest/etc/fonts" \
+  "$dest/lib/firmware/rtlwifi" \
+  "$dest/root/.config/openbox" "$dest/root/.config/tint2" \
+  "$dest/root/.config/libfm" \
   "$dest/media/jeux" "$dest/media/tf2" "$dest/var/lib/r36os"
 
-rm -f "$dest/sbin/init" "$dest/sbin/shutdown" "$dest/sbin/poweroff" \
-  "$dest/sbin/reboot" "$dest/sbin/halt"
-
-for f in "$racine"/rootfs/sbin/*; do
-  if [ -f "$f" ]; then
-    install -m 755 "$f" "$dest/sbin/$(basename "$f")"
-  fi
+# Outils materiel : manette, son, lumiere, batterie, wifi, cartes, clavier.
+for f in "$r"/usr/bin/*; do
+  install -m 755 "$f" "$dest/usr/bin/$(basename "$f")"
 done
-ln -sf poweroff "$dest/sbin/halt"
+install -m 755 "$r/usr/lib/r36os/udhcpc.sh" "$dest/usr/lib/r36os/udhcpc.sh"
 
-for f in "$racine"/rootfs/usr/bin/*; do
-  if [ -f "$f" ]; then
-    install -m 755 "$f" "$dest/usr/bin/$(basename "$f")"
-  fi
+# Demarrage et arret : OpenRC lance local.d.
+for f in "$r"/local.d/*; do
+  install -m 755 "$f" "$dest/etc/local.d/$(basename "$f")"
 done
 
-install -m 644 "$racine/rootfs/etc/os-release" "$dest/etc/os-release"
-install -m 644 "$racine/rootfs/etc/issue" "$dest/etc/issue"
-install -m 644 "$racine/rootfs/etc/hosts" "$dest/etc/hosts"
-install -m 644 "$racine/rootfs/lxqt/power.conf" "$dest/usr/share/lxqt/power.conf"
-install -m 644 "$racine/rootfs/xorg/xorg.conf" "$dest/etc/X11/xorg.conf"
-install -m 644 "$racine/rootfs/xorg/joystick.conf" \
+# Microprogramme du wifi 8188fu, aux deux chemins que le pilote essaie.
+install -m 644 "$r/firmware/rtl8188fufw.bin" "$dest/lib/firmware/rtl8188fufw.bin"
+install -m 644 "$r/firmware/rtl8188fufw.bin" \
+  "$dest/lib/firmware/rtlwifi/rtl8188fufw.bin"
+
+# Ecran en framebuffer, manette ignoree par X, polices sans lissage.
+install -m 644 "$r/xorg/xorg.conf" "$dest/etc/X11/xorg.conf"
+install -m 644 "$r/xorg/joystick.conf" \
   "$dest/etc/X11/xorg.conf.d/50-joystick.conf"
-install -m 644 "$racine/rootfs/fonts/local.conf" "$dest/etc/fonts/local.conf"
-install -m 644 "$racine/scripts/cible.py" "$dest/usr/lib/r36os/cible.py"
-install -m 755 "$racine/rootfs/usr/lib/r36os/udhcpc.sh" \
-  "$dest/usr/lib/r36os/udhcpc.sh"
-install -m 755 "$racine/vendor/busybox" "$dest/usr/bin/busybox"
-install -m 644 "$racine/rootfs/lxqt/panel.conf" "$dest/root/.config/lxqt/panel.conf"
-install -m 644 "$racine/rootfs/lxqt/session.conf" "$dest/root/.config/lxqt/session.conf"
-install -m 644 "$racine/rootfs/lxqt/lxqt.conf" "$dest/root/.config/lxqt/lxqt.conf"
-install -m 644 "$racine/rootfs/lxqt/pcmanfm.conf" \
-  "$dest/root/.config/pcmanfm-qt/lxqt/settings.conf"
+install -m 644 "$r/fonts/local.conf" "$dest/etc/fonts/local.conf"
 
-install -m 644 "$racine/rootfs/lxqt/no-globalkeys.desktop" \
-  "$dest/etc/xdg/autostart/lxqt-globalkeyshortcuts.desktop"
-install -m 644 "$racine/rootfs/lxqt/no-policykit.desktop" \
-  "$dest/etc/xdg/autostart/lxqt-policykit-agent.desktop"
-install -m 644 "$racine/rootfs/lxqt/no-runner.desktop" \
-  "$dest/etc/xdg/autostart/lxqt-runner.desktop"
-install -m 644 "$racine/rootfs/lxqt/no-xscreensaver.desktop" \
-  "$dest/etc/xdg/autostart/lxqt-xscreensaver-autostart.desktop"
-install -m 644 "$racine/rootfs/lxqt/manette.desktop" \
-  "$dest/etc/xdg/autostart/r36os-manette.desktop"
-install -m 644 "$racine/rootfs/lxqt/veille.desktop" \
-  "$dest/etc/xdg/autostart/r36os-veille.desktop"
-install -m 644 "$racine/rootfs/lxqt/son.desktop" \
-  "$dest/etc/xdg/autostart/r36os-son.desktop"
-install -m 644 "$racine/rootfs/lxqt/disques.desktop" \
-  "$dest/etc/xdg/autostart/r36os-disques.desktop"
+# Session : tty1 lance X, Openbox et la barre.
+install -m 755 "$r/x/xinitrc" "$dest/root/.xinitrc"
+install -m 644 "$r/x/menu.xml" "$dest/root/.config/openbox/menu.xml"
+install -m 644 "$r/x/tint2rc" "$dest/root/.config/tint2/tint2rc"
+install -m 644 "$r/x/libfm.conf" "$dest/root/.config/libfm/libfm.conf"
 
-for nom in installer fichiers terminal jeux wifi; do
-  install -m 644 "$racine/rootfs/lxqt/$nom.desktop" \
-    "$dest/usr/share/applications/r36os-$nom.desktop"
-  install -m 644 "$racine/rootfs/lxqt/$nom.desktop" \
-    "$dest/root/Desktop/r36os-$nom.desktop"
-  install -m 644 "$racine/rootfs/lxqt/$nom.desktop" \
-    "$dest/root/Bureau/r36os-$nom.desktop"
-done
+# rc.xml d'Alpine, avec Super+m pour le menu et sans animation.
+sed \
+  -e 's|</keyboard>|<keybind key="W-m"><action name="ShowMenu"><menu>root-menu</menu></action></keybind></keyboard>|' \
+  -e 's|<animateIconify>yes</animateIconify>|<animateIconify>no</animateIconify>|' \
+  -e 's|<drawContents>yes</drawContents>|<drawContents>no</drawContents>|' \
+  "$dest/etc/xdg/openbox/rc.xml" > "$dest/root/.config/openbox/rc.xml"
 
-if [ -d "$racine/rootfs/apport" ]; then
-  cp -a "$racine/rootfs/apport/." "$dest/"
+# tty1 lance la session, ttyFIQ0 garde un shell sur le port serie.
+sed -i \
+  -e 's|^tty1::.*|tty1::respawn:/usr/bin/r36os-session|' \
+  "$dest/etc/inittab"
+if ! grep -q ttyFIQ0 "$dest/etc/inittab"; then
+  printf 'ttyFIQ0::respawn:/sbin/getty -L 115200 ttyFIQ0 vt100\n' \
+    >> "$dest/etc/inittab"
+fi
+if [ -f "$dest/etc/securetty" ] && ! grep -q ttyFIQ0 "$dest/etc/securetty"; then
+  printf 'ttyFIQ0\n' >> "$dest/etc/securetty"
 fi
 
-if [ -f "$dest/etc/xdg/openbox/rc.xml" ]; then
-  sed -i \
-    -e 's/<animateIconify>yes<\/animateIconify>/<animateIconify>no<\/animateIconify>/' \
-    -e 's/<drawContents>yes<\/drawContents>/<drawContents>no<\/drawContents>/' \
-    "$dest/etc/xdg/openbox/rc.xml"
-fi
-
-rm -f "$dest/etc/r36os-ecraser-interne"
+install -m 644 "$r/etc/fstab" "$dest/etc/fstab"
 printf 'r36os\n' > "$dest/etc/hostname"
-if [ -e "$dest/usr/share/zoneinfo/Europe/Paris" ]; then
-  ln -sfn /usr/share/zoneinfo/Europe/Paris "$dest/etc/localtime"
-  printf 'Europe/Paris\n' > "$dest/etc/timezone"
-fi
-chmod 1777 "$dest/tmp"
+printf '127.0.0.1 localhost r36os\n' > "$dest/etc/hosts"
+ln -sfn /usr/share/zoneinfo/Europe/Paris "$dest/etc/localtime"
+printf 'Europe/Paris\n' > "$dest/etc/timezone"
 
-test -x "$dest/sbin/wpa_supplicant"
-test -x "$dest/bin/ntfs-3g"
-test -f "$dest/lib/firmware/rtlwifi/rtl8188fufw.bin"
-test -x "$dest/usr/bin/r36os-clavier"
-test -x "$dest/usr/bin/r36os-disques"
+# Alpine range certains binaires dans /sbin, d'autres dans /usr/sbin.
+present() {
+  for d in sbin usr/sbin bin usr/bin; do
+    if [ -x "$dest/$d/$1" ]; then
+      return 0
+    fi
+  done
+  echo "Manque $1 dans la racine." >&2
+  return 1
+}
+for b in wpa_supplicant ntfs-3g resize2fs openbox tint2 startx python3; do
+  present "$b"
+done
+grep -q r36os-session "$dest/etc/inittab"
+grep -q root-menu "$dest/root/.config/openbox/rc.xml"

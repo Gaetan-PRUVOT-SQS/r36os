@@ -1,5 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Manette
-Exec=/usr/bin/r36os-manette
-OnlyShowIn=LXQt;

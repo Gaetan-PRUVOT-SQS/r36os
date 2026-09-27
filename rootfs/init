@@ -19,6 +19,12 @@ while [ -z "$part" ] && [ "$i" -lt 20 ]; do
     if [ ! -b "$candidat" ]; then
       continue
     fi
+    # Magic ext4 53 ef a l'octet 1080. Vide si od manque : on ne bloque pas.
+    magic=$(dd if="$candidat" bs=1 skip=1080 count=2 2>/dev/null \
+      | od -An -tx1 2>/dev/null | tr -d ' \n')
+    if [ -n "$magic" ] && [ "$magic" != "53ef" ]; then
+      continue
+    fi
     nom=$(dd if="$candidat" bs=1 skip=1144 count=16 2>/dev/null | tr -d '\000')
     if [ "$nom" = "live" ]; then
       live=$candidat
@@ -28,8 +34,8 @@ while [ -z "$part" ] && [ "$i" -lt 20 ]; do
     fi
     noeud=${candidat##*/}
     disque=${noeud%p*}
-    octets=$(cat "/sys/block/$disque/size" 2>/dev/null || echo 0)
-    if [ "$octets" -gt "$seuil" ]; then
+    secteurs=$(cat "/sys/block/$disque/size" 2>/dev/null || echo 0)
+    if [ "$secteurs" -gt "$seuil" ]; then
       carte=$candidat
     else
       interne=$candidat
@@ -41,6 +47,10 @@ while [ -z "$part" ] && [ "$i" -lt 20 ]; do
     part=$interne
   fi
   if [ -n "$part" ]; then
+    break
+  fi
+  # Une carte live est vue : 3 secondes suffisent pour laisser la puce arriver.
+  if [ -n "$live" ] && [ "$i" -ge 3 ]; then
     break
   fi
   i=$((i + 1))

@@ -5,26 +5,22 @@ set -eu
 racine=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 out=$racine/out
 dossier=$out/cible
-src=$racine/debian-root
+src=$racine/alpine-root
 stage=$dossier/stage
 boot=$dossier/boot.img
 image=$dossier/racine.img
 
-python3 "$racine/scripts/cible.py" preparer
-
-if [ ! -x "$src/usr/bin/startlxqt" ] || [ ! -x "$src/usr/bin/startx" ]; then
-  echo "Bureau absent dans $src." >&2
+if [ "$(id -u)" -ne 0 ]; then
+  echo "Lance ce script avec sudo." >&2
   exit 1
 fi
 
-export DISPLAY="${DISPLAY:-:0}"
-export SUDO_ASKPASS="$racine/scripts/askpass-assembler.sh"
-cat > "$SUDO_ASKPASS" << 'EOF'
-#!/bin/sh
-export DISPLAY="${DISPLAY:-:0}"
-zenity --password --title="Preparer r36os pour la puce"
-EOF
-chmod 700 "$SUDO_ASKPASS"
+python3 "$racine/scripts/cible.py" preparer
+
+if [ ! -x "$src/usr/bin/openbox" ] || [ ! -x "$src/usr/bin/startx" ]; then
+  echo "Alpine absent dans $src. Lance construire-alpine.sh." >&2
+  exit 1
+fi
 
 travail=$(mktemp)
 cat > "$travail" << EOF
@@ -88,23 +84,21 @@ if [ "\$etiq" != "r36os" ]; then
   exit 1
 fi
 mount -o loop "\$image" "\$mntr"
-test -x "\$mntr/usr/bin/startlxqt"
+test -x "\$mntr/usr/bin/openbox"
 test -x "\$mntr/sbin/init"
-test -f "\$mntr/usr/lib/r36os/cible.py"
-test -x "\$mntr/sbin/resize2fs"
-grep -q resize2fs "\$mntr/sbin/init"
-if grep -n 'now)' "\$mntr/sbin/shutdown" >/dev/null; then
-  echo "shutdown traite encore now." >&2
-  exit 1
-fi
+test -x "\$mntr/etc/local.d/r36os.start"
+test -x "\$mntr/etc/local.d/r36os.stop"
+grep -q r36os-session "\$mntr/etc/inittab"
+test -L "\$mntr/etc/runlevels/default/local"
+test -L "\$mntr/etc/runlevels/shutdown/mount-ro"
 sync
 umount "\$mntr"
 echo "images \$taille"
 ok=1
 EOF
 sh -n "$travail"
-trap 'rm -f "$travail" "$SUDO_ASKPASS"' EXIT
-sudo -A sh "$travail"
+trap 'rm -f "$travail"' EXIT
+sh "$travail"
 python3 "$racine/scripts/cible.py" controler mbr "$dossier/mbr.bin" 0
 python3 "$racine/scripts/cible.py" controler boot "$boot" 16384
 python3 "$racine/scripts/cible.py" controler racine "$image" 278528

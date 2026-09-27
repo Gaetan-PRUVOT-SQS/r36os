@@ -1,7 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Fichiers
-Exec=pcmanfm-qt
-Icon=system-file-manager
-Terminal=false
-Categories=System;FileManager;

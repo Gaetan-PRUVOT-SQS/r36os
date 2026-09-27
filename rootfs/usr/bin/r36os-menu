@@ -1,0 +1,40 @@
+#!/usr/bin/env python3
+# Ouvre le menu d'Openbox : envoie Super+m, lie a ShowMenu dans rc.xml.
+import ctypes
+import sys
+
+SUPER_L = 0xFFEB
+LETTRE_M = 0x006D
+
+
+def main():
+    x11 = ctypes.CDLL("libX11.so.6")
+    xtst = ctypes.CDLL("libXtst.so.6")
+    x11.XOpenDisplay.restype = ctypes.c_void_p
+    x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+    x11.XKeysymToKeycode.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+    x11.XKeysymToKeycode.restype = ctypes.c_uint
+    x11.XFlush.argtypes = [ctypes.c_void_p]
+    x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
+    xtst.XTestFakeKeyEvent.argtypes = [
+        ctypes.c_void_p, ctypes.c_uint, ctypes.c_int, ctypes.c_ulong
+    ]
+    ecran = x11.XOpenDisplay(None)
+    if not ecran:
+        return 1
+    sup = x11.XKeysymToKeycode(ecran, SUPER_L)
+    m = x11.XKeysymToKeycode(ecran, LETTRE_M)
+    if not sup or not m:
+        x11.XCloseDisplay(ecran)
+        return 1
+    xtst.XTestFakeKeyEvent(ecran, sup, 1, 0)
+    xtst.XTestFakeKeyEvent(ecran, m, 1, 0)
+    xtst.XTestFakeKeyEvent(ecran, m, 0, 0)
+    xtst.XTestFakeKeyEvent(ecran, sup, 0, 0)
+    x11.XFlush(ecran)
+    x11.XCloseDisplay(ecran)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

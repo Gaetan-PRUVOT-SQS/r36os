@@ -1,0 +1,17 @@
+#!/bin/sh
+# Lance sur tty1 par inittab. Si X s'arrete, on a un shell, puis X revient.
+
+export HOME=/root
+export DISPLAY=:0
+export XDG_RUNTIME_DIR=/run/user/0
+mkdir -p "$XDG_RUNTIME_DIR"
+chmod 700 "$XDG_RUNTIME_DIR"
+cd /root || exit 1
+
+if [ -e /dev/fb0 ]; then
+  startx /root/.xinitrc -- :0 vt1 -keeptty
+  echo "r36os: bureau arrete, exit pour le relancer"
+else
+  echo "r36os: pas d'ecran"
+fi
+exec /bin/sh -l

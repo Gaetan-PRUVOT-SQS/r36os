@@ -1,3 +1,2 @@
-proc /proc proc defaults 0 0
-sysfs /sys sysfs defaults 0 0
-devtmpfs /dev devtmpfs defaults 0 0
+/dev/root / ext4 rw,noatime 0 0
+tmpfs /tmp tmpfs size=64m,mode=1777 0 0

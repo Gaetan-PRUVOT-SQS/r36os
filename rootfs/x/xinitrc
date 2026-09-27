@@ -1,0 +1,8 @@
+#!/bin/sh
+# Session r36os : veille, son, manette, barre, puis Openbox.
+
+/usr/bin/r36os-veille
+/usr/bin/r36os-son
+/usr/bin/r36os-manette &
+tint2 &
+exec openbox
